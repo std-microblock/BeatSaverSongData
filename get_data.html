@@ -10,8 +10,7 @@
 </head>
 
 <body>
-    <a
-        href="https://chrome.google.com/webstore/detail/allow-cors-access-control/lhobafahddgcelffkeicbaginigeejlf/related?hl=en">安装跨域插件</a>
+    <a href="https://chrome.google.com/webstore/detail/allow-cors-access-control/lhobafahddgcelffkeicbaginigeejlf/related?hl=en">安装跨域插件</a>
 
 
     <div id="results_dom"></div>
@@ -108,10 +107,7 @@
                     let songfile = (await rzip.getEntries()).filter(v => v.filename.endsWith(info._songFilename.split(".").pop()))[0]
 
                     let songdata = await songfile.getData(new zip.BlobWriter());
-
-                    // songdata
-                    // return;
-
+                    
                     const audioCtx = new AudioContext();
 
                     let data = await audioCtx.decodeAudioData(await songdata.arrayBuffer())
@@ -146,16 +142,10 @@
 
                     updateResults()
 
-
                 }
                 localStorage["lastPage"] = parseInt(localStorage["lastPage"]) + 1
             }
         })()
-
-    // fetch('rec.json').then(res => res.json()).then(data => {
-    //     let b64 = NeteaseRecordArrayToBase64(data);
-    //     console.log(b64)
-    // })
     </script>
 
 
