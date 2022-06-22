@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BeatSaver Recognization</title>
+    <script src="https://gildas-lormeau.github.io/zip.js/demos/lib/zip.min.js"></script>
+</head>
+
+<body>
+    <a
+        href="https://chrome.google.com/webstore/detail/allow-cors-access-control/lhobafahddgcelffkeicbaginigeejlf/related?hl=en">安装跨域插件</a>
+
+
+    <div id="results_dom"></div>
+
+    <script src="sandbox.bundle.js"></script>
+    <script>
+
+        function similar(s, t, f) { if (!s || !t) { return 0 } var l = s.length > t.length ? s.length : t.length    
+        var n = s.length    
+        var m = t.length    
+        var d = []    
+        f = f || 3    
+        var min = function (a, b, c) { return a < b ? (a < c ? a : c) : (b < c ? b : c) }    
+        var i, j, si, tj, cost    
+        if (n === 0) return m    
+        if (m === 0) return n    
+        for (i = 0; i <= n; i++) { d[i] = []        
+            d[i][0] = i } for (j = 0; j <= m; j++) { d[0][j] = j } for (i = 1; i <= n; i++) { si = s.charAt(i - 1)       
+                 for (j = 1; j <= m; j++) { tj = t.charAt(j - 1)            
+                    if (si === tj) { cost = 0 } else { cost = 1 } d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost) } } let res = (1 - d[n][m] / l); return res }
+
+        let results = localStorage["results"] || "[]"
+        results = JSON.parse(results)
+        updateResults()
+        function updateResults() {
+            console.log(results.reduce((p, c) => p + (c.match.result ? 1 : 0), 0), results.length)
+            results_dom.innerHTML = `目前匹配成功率：${(results.reduce((p, c) => p + (c.match.result ? 1 : 0), 0) / results.length * 100).toFixed(3)}%<br>结果：\n${results.map(v => {
+                if (v.match.result == null) return `<div class='song'><span class="name">${v.saver.name}</span><span class="result"><bold>匹配失败。</bold></span></div>`
+                return `<div class='song'><span class="name">${v.saver.name}</span><span class="result"><bold>匹配成功:${v.match.result[0].song.name}</bold></span></div>`
+            }).join("")}`;
+            localStorage["results"] = JSON.stringify(results)
+        }
+
+
+        // throw Error("stopppp")
+        function toNCMBuffer(audiodata, from, len) {
+            let now = 0;
+            let json = {}
+            let buf = audiodata.getChannelData(1)
+
+            while (now < len * 8e3) {
+                json[now] = buf[now * audiodata.sampleRate / 8e3 + from * audiodata.sampleRate];
+                now += 1;
+            }
+            return json;
+        }
+
+        async function getMatches(rawdata, length) {
+            var myHeaders = new Headers();
+            myHeaders.append("Content-Type", "application/x-www-form-urlencoded");
+            // myHeaders.append("Cookie", "NMTID=00OX5XnP2Lye8FNsU-Kv9N8jeXqYWAAAAGBh-ODmw");
+
+            var urlencoded = new URLSearchParams();
+            urlencoded.append("duration", length);
+            urlencoded.append("times", "2");
+            urlencoded.append("decrypt", "1");
+            urlencoded.append("rawdata", rawdata);
+            urlencoded.append("algorithmCode", "shazam_v2");
+            urlencoded.append("sessionId", "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx");
+
+            var requestOptions = {
+                method: 'POST',
+                headers: myHeaders,
+                body: urlencoded,
+                redirect: 'follow'
+            };
+
+            return await (await fetch("https://interface.music.163.com/api/music/audio/match", requestOptions)).json()
+        }
+
+
+        function timeout(ms) {
+            return new Promise((rs) => {
+                setTimeout(() => { rs() }, ms);
+            })
+        }
+        localStorage["lastPage"] ||= "1";
+
+        !(async function () {
+            while (1) {
+                let songs = await (await fetch(`https://beatsaver.com/api/search/text/${localStorage["lastPage"]}?sortOrder=Latest`)).json()
+                for (let song of songs.docs) {
+                    let { previewURL, downloadURL } = song.versions[0];
+
+                    let buffer = await (await fetch(previewURL)).arrayBuffer()
+
+                    let mapBlob = await (await fetch(downloadURL)).blob()
+                    let reader = new zip.BlobReader(mapBlob)
+                    let rzip = new zip.ZipReader(reader)
+
+                    let infodat = (await rzip.getEntries()).filter(v => v.filename.toLowerCase() == "info.dat")[0]
+                    let info = JSON.parse(await infodat.getData(new zip.TextWriter()));
+
+                    let songfile = (await rzip.getEntries()).filter(v => v.filename.endsWith(info._songFilename.split(".").pop()))[0]
+
+                    let songdata = await songfile.getData(new zip.BlobWriter());
+
+                    // songdata
+                    // return;
+
+                    const audioCtx = new AudioContext();
+
+                    let data = await audioCtx.decodeAudioData(await songdata.arrayBuffer())
+
+                    let secs = 4
+                    let matches = { data: {} };
+
+                    let now_opt = 0, similarity = -1;
+                    while ((secs + 20) < data.duration && similarity <0.6) {
+
+                        let _matches = await getMatches(NeteaseRecordArrayToBase64(toNCMBuffer(data, secs, 6)), 6)
+                        console.log("attempt " + secs)
+                        if (_matches.data.result) {
+                            matches=_matches
+                            let namea=matches.data.result[0].song.name,nameb=info._songName
+                            namea=namea.toLowerCase().replace(/[\[,（,\(].*?[\),）,\]]/g,"").replace(/\s/g,"");
+                            nameb=nameb.toLowerCase().replace(/[\[,（,\(].*?[\),）,\]]/g,"").replace(/\s/g,"");
+                            similarity = similar(namea,nameb);
+                            if(namea.includes(nameb)||nameb.includes(namea))similarity=1;
+                            console.log(`Name similarity ${similarity} ["${namea}","${nameb}"]`)
+                        }
+                        secs += 30
+                        await timeout(1000)
+                    }
+
+                    results.push({
+                        saver: song,
+                        match: matches.data
+                    })
+
+
+
+                    updateResults()
+
+
+                }
+                localStorage["lastPage"] = parseInt(localStorage["lastPage"]) + 1
+            }
+        })()
+
+    // fetch('rec.json').then(res => res.json()).then(data => {
+    //     let b64 = NeteaseRecordArrayToBase64(data);
+    //     console.log(b64)
+    // })
+    </script>
+
+
+</body>
+
+</html>
